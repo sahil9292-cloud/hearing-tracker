@@ -297,11 +297,16 @@ async function testConnection() {
 async function pushToSheets(action, payload) {
   if(!webhookUrl) return { status: 'no-url' };
   try {
-    const response = await fetch(webhookUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action, ...payload })
-    });
+    // Use GET with URL params — bypasses CORS completely
+    let url = webhookUrl + '?action=' + encodeURIComponent(action);
+    if(action === 'delete') {
+      url += '&id=' + encodeURIComponent(payload.id);
+    } else if(action === 'add' || action === 'update') {
+      url += '&data=' + encodeURIComponent(JSON.stringify(payload.entry));
+    } else if(action === 'sync') {
+      url += '&data=' + encodeURIComponent(JSON.stringify(payload.entries));
+    }
+    const response = await fetch(url);
     const text = await response.text();
     try { return JSON.parse(text); }
     catch(e) { return { status: 'ok', raw: text }; }
