@@ -12,7 +12,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .header h1{font-size:19px;font-weight:700;}
 .header p{font-size:11px;opacity:0.85;margin-top:2px;}
 .sync-bar{display:flex;align-items:center;gap:6px;margin-top:8px;font-size:11px;}
-.dot{width:8px;height:8px;border-radius:50%;background:#ff9800;}
+.dot{width:8px;height:8px;border-radius:50%;background:#ff9800;flex-shrink:0;}
 .dot.ok{background:#69f0ae;}.dot.err{background:#ff5252;}
 .tabs{display:flex;gap:6px;margin-bottom:1rem;}
 .tab{flex:1;padding:9px 4px;border:1.5px solid #dce3ed;border-radius:10px;background:white;font-size:12px;font-weight:600;color:#888;cursor:pointer;}
@@ -26,8 +26,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .field textarea{resize:vertical;min-height:60px;}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
 .btn{width:100%;padding:11px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;border:none;margin-bottom:8px;}
-.btn-blue{background:#1565C0;color:white;}.btn-green{background:#2e7d32;color:white;}
-.btn-gray{background:#eef2f7;color:#444;}
+.btn-blue{background:#1565C0;color:white;}.btn-gray{background:#eef2f7;color:#444;}
 .btn-row{display:flex;gap:8px;margin-bottom:8px;}.btn-row .btn{margin-bottom:0;}
 .entry-card{background:white;border-radius:12px;padding:1rem 1.2rem;margin-bottom:0.7rem;box-shadow:0 1px 5px rgba(0,0,0,0.07);border-left:4px solid #1565C0;}
 .entry-card.today{border-left-color:#d32f2f;background:#fff8f8;}
@@ -55,10 +54,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 <div class="app">
   <div class="header">
     <h1>⚖️ Hearing Tracker</h1>
-    <p>Notice management · GitHub sync · Email reminders</p>
+    <p>Real-time sync · Multi-user · Firebase</p>
     <div class="sync-bar">
       <div class="dot" id="sync-dot"></div>
-      <span id="sync-label">Loading...</span>
+      <span id="sync-label">Connecting...</span>
     </div>
   </div>
   <div class="tabs">
@@ -101,171 +100,152 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <select id="fil-n" onchange="renderList()"><option value="">All types</option><option>APPEAL</option><option>DRC-01</option><option>RECTIFICATION</option><option>ASMT-10</option></select>
       <select id="fil-r" onchange="renderList()"><option value="">All replies</option><option>YES</option><option>NO</option><option>PENDING</option></select>
     </div>
-    <button class="btn btn-gray" onclick="loadData()" style="margin-bottom:0.75rem;font-size:12px;padding:8px;">🔄 Refresh</button>
     <div id="list-con"><div class="empty">Loading...</div></div>
   </div>
 </div>
 <div class="toast" id="toast"></div>
 
-<script>
-const GITHUB_TOKEN = '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';
-const GITHUB_OWNER = 'sahil9292-cloud';
-const GITHUB_REPO  = 'hearing-tracker';
-const DATA_FILE    = 'data.json';
-const API = 'https://api.github.com/repos/'+GITHUB_OWNER+'/'+GITHUB_REPO+'/contents/'+DATA_FILE;
+<!-- Firebase SDK -->
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, orderBy } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAIyLjcB_qQJYXWXXW4qrxdNKwMKSI9plE",
+  authDomain: "hearing-tracker.firebaseapp.com",
+  projectId: "hearing-tracker",
+  storageBucket: "hearing-tracker.firebasestorage.app",
+  messagingSenderId: "740383605519",
+  appId: "1:740383605519:web:817572f5690c09edec347a"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const col = collection(db, 'hearings');
 
 let entries = [];
-let fileSha = '';
 let editId = null;
 
-loadData();
+// Real-time listener
+const q = query(col, orderBy('date'));
+onSnapshot(q, (snapshot) => {
+  entries = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+  setStatus(true, 'Live ✓ — ' + entries.length + ' entries');
+  renderList();
+}, (err) => {
+  setStatus(false, 'Error: ' + err.message);
+});
 
-function sw(t){
-  ['form','list'].forEach(id=>document.getElementById('tab-'+id).classList.remove('visible'));
-  document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
+// Expose functions to window
+window.sw = function(t) {
+  ['form','list'].forEach(id => document.getElementById('tab-'+id).classList.remove('visible'));
+  document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
   document.getElementById('tab-'+t).classList.add('visible');
-  ['form','list'].forEach((id,i)=>{if(id===t)document.querySelectorAll('.tab')[i].classList.add('active');});
-  if(t==='list') renderList();
-}
+  ['form','list'].forEach((id,i) => { if(id===t) document.querySelectorAll('.tab')[i].classList.add('active'); });
+};
 
-function showToast(msg,color='#2e7d32'){
-  const t=document.getElementById('toast');
-  t.textContent=msg;t.style.background=color;t.style.color='white';
-  t.classList.add('show');setTimeout(()=>t.classList.remove('show'),3500);
-}
+window.showToast = function(msg, color='#2e7d32') {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.style.background = color; t.style.color = 'white';
+  t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 3000);
+};
 
-function setStatus(ok,msg){
-  document.getElementById('sync-dot').className='dot'+(ok?' ok':' err');
-  document.getElementById('sync-label').textContent=msg;
-}
+window.setStatus = function(ok, msg) {
+  document.getElementById('sync-dot').className = 'dot' + (ok ? ' ok' : ' err');
+  document.getElementById('sync-label').textContent = msg;
+};
 
-async function loadData(){
-  setStatus(false,'Loading...');
-  try{
-    const r=await fetch(API+'?t='+Date.now(),{
-      headers:{'Authorization':'token '+GITHUB_TOKEN,'Accept':'application/vnd.github.v3+json'}
-    });
-    if(!r.ok) throw new Error('HTTP '+r.status);
-    const json=await r.json();
-    fileSha=json.sha;
-    const decoded=JSON.parse(atob(json.content.replace(/\n/g,'')));
-    entries=decoded.entries||[];
-    setStatus(true,'Synced ✓ — '+entries.length+' entries');
-    renderList();
-  }catch(e){
-    setStatus(false,'Failed: '+e.message);
-    showToast('Load failed — check token','#c62828');
+window.saveEntry = async function() {
+  const name   = document.getElementById('f-name').value.trim();
+  const fy     = document.getElementById('f-fy').value.trim();
+  const notice = document.getElementById('f-notice').value;
+  const reply  = document.getElementById('f-reply').value;
+  const date   = document.getElementById('f-date').value;
+  const gmail1 = document.getElementById('f-gmail1').value.trim();
+  const gmail2 = document.getElementById('f-gmail2').value.trim();
+  const remark = document.getElementById('f-remark').value.trim();
+
+  if(!name||!notice||!date||!gmail1) { showToast('Name, Notice, Date & Gmail required','#c62828'); return; }
+
+  const data = { name, fy, notice, reply, date, gmail1, gmail2, remark, updatedAt: new Date().toISOString() };
+
+  try {
+    if(editId) {
+      await updateDoc(doc(db,'hearings',editId), data);
+      showToast('Updated ✓', '#1565C0');
+    } else {
+      // Generate UID
+      const n = entries.length + 1;
+      data.uid = 'HT-' + String(n).padStart(4,'0');
+      await addDoc(col, data);
+      showToast('Saved! ' + data.uid, '#2e7d32');
+    }
+    clearForm();
+  } catch(e) {
+    showToast('Error: ' + e.message, '#c62828');
   }
-}
+};
 
-async function saveData(){
-  const content=btoa(unescape(encodeURIComponent(JSON.stringify({entries},null,2))));
-  const r=await fetch(API,{
-    method:'PUT',
-    headers:{'Authorization':'token '+GITHUB_TOKEN,'Accept':'application/vnd.github.v3+json','Content-Type':'application/json'},
-    body:JSON.stringify({message:'Update — '+new Date().toLocaleString('en-IN'),content,sha:fileSha})
-  });
-  if(!r.ok) throw new Error('HTTP '+r.status);
-  const json=await r.json();
-  fileSha=json.content.sha;
-}
+window.clearForm = function() {
+  ['f-name','f-fy','f-gmail1','f-gmail2','f-remark','f-date'].forEach(id => document.getElementById(id).value='');
+  document.getElementById('f-notice').value='';
+  document.getElementById('f-reply').value='';
+  editId = null;
+  document.getElementById('form-lbl').textContent = 'New Entry';
+  document.getElementById('uid-row').style.display = 'none';
+};
 
-function genUID(){
-  const ids=entries.map(e=>e.id);
-  let n=entries.length+1,id='HT-'+String(n).padStart(4,'0');
-  while(ids.includes(id)){n++;id='HT-'+String(n).padStart(4,'0');}
-  return id;
-}
+window.editEntry = function(id) {
+  const e = entries.find(x => x.id === id); if(!e) return;
+  editId = id;
+  document.getElementById('f-name').value   = e.name;
+  document.getElementById('f-fy').value     = e.fy;
+  document.getElementById('f-notice').value = e.notice;
+  document.getElementById('f-reply').value  = e.reply;
+  document.getElementById('f-date').value   = e.date;
+  document.getElementById('f-gmail1').value = e.gmail1;
+  document.getElementById('f-gmail2').value = e.gmail2||'';
+  document.getElementById('f-remark').value = e.remark||'';
+  document.getElementById('f-uid').value    = e.uid||e.id;
+  document.getElementById('uid-row').style.display = 'block';
+  document.getElementById('form-lbl').textContent = 'Editing: '+e.name;
+  sw('form');
+  window.scrollTo({top:0,behavior:'smooth'});
+};
 
-async function saveEntry(){
-  const name=document.getElementById('f-name').value.trim();
-  const fy=document.getElementById('f-fy').value.trim();
-  const notice=document.getElementById('f-notice').value;
-  const reply=document.getElementById('f-reply').value;
-  const date=document.getElementById('f-date').value;
-  const gmail1=document.getElementById('f-gmail1').value.trim();
-  const gmail2=document.getElementById('f-gmail2').value.trim();
-  const remark=document.getElementById('f-remark').value.trim();
-  if(!name||!notice||!date||!gmail1){showToast('Name, Notice, Date & Gmail required','#c62828');return;}
-  const entry={id:editId||genUID(),name,fy,notice,reply,date,gmail1,gmail2,remark};
-  const prev=[...entries];
-  if(editId){const idx=entries.findIndex(e=>e.id===editId);if(idx>-1)entries[idx]=entry;}
-  else entries.push(entry);
-  showToast('Saving...','#1565C0');
-  setStatus(false,'Saving...');
-  try{
-    await saveData();
-    showToast(editId?'Updated ✓':'Saved! '+entry.id,'#2e7d32');
-    setStatus(true,'Synced ✓ — '+entries.length+' entries');
-    clearForm();renderList();
-  }catch(e){
-    entries=prev;
-    showToast('Save failed: '+e.message,'#c62828');
-    setStatus(false,'Save failed');
-  }
-}
-
-function clearForm(){
-  ['f-name','f-fy','f-gmail1','f-gmail2','f-remark','f-date'].forEach(id=>document.getElementById(id).value='');
-  document.getElementById('f-notice').value='';document.getElementById('f-reply').value='';
-  editId=null;document.getElementById('form-lbl').textContent='New Entry';
-  document.getElementById('uid-row').style.display='none';
-}
-
-function editEntry(id){
-  const e=entries.find(x=>x.id===id);if(!e)return;
-  editId=id;
-  document.getElementById('f-name').value=e.name;document.getElementById('f-fy').value=e.fy;
-  document.getElementById('f-notice').value=e.notice;document.getElementById('f-reply').value=e.reply;
-  document.getElementById('f-date').value=e.date;document.getElementById('f-gmail1').value=e.gmail1;
-  document.getElementById('f-gmail2').value=e.gmail2||'';document.getElementById('f-remark').value=e.remark||'';
-  document.getElementById('f-uid').value=e.id;document.getElementById('uid-row').style.display='block';
-  document.getElementById('form-lbl').textContent='Editing: '+e.name+' ('+e.id+')';
-  sw('form');window.scrollTo({top:0,behavior:'smooth'});
-}
-
-async function deleteEntry(id){
-  if(!confirm('Delete '+id+'?'))return;
-  const prev=[...entries];
-  entries=entries.filter(e=>e.id!==id);
-  setStatus(false,'Deleting...');
-  try{
-    await saveData();
+window.deleteEntry = async function(id) {
+  if(!confirm('Delete this entry?')) return;
+  try {
+    await deleteDoc(doc(db,'hearings',id));
     showToast('Deleted','#555');
-    setStatus(true,'Synced ✓ — '+entries.length+' entries');
-    renderList();
-  }catch(e){
-    entries=prev;
-    showToast('Delete failed','#c62828');
-    setStatus(false,'Delete failed');
+  } catch(e) {
+    showToast('Error: '+e.message,'#c62828');
   }
-}
+};
 
-function formatDate(d){
-  if(!d)return'';
-  const[y,m,day]=String(d).split('-');
-  return day+' '+['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(m)-1]+' '+y;
-}
-
-function renderList(){
-  const fn=document.getElementById('fil-n').value;
-  const fr=document.getElementById('fil-r').value;
-  let f=entries.filter(e=>(!fn||e.notice===fn)&&(!fr||e.reply===fr));
-  f.sort((a,b)=>String(a.date).localeCompare(String(b.date)));
-  const c=document.getElementById('list-con');
-  if(!f.length){c.innerHTML='<div class="empty">No entries found</div>';return;}
-  const today=new Date().toISOString().split('T')[0];
-  const tomorrow=new Date(Date.now()+86400000).toISOString().split('T')[0];
-  c.innerHTML=f.map(e=>{
-    const d=String(e.date);
-    const isToday=d===today,isTomorrow=d===tomorrow,isPast=d<today;
-    const cls=isToday?'today':isPast?'past':'';
-    const rb=e.reply==='YES'?'<span class="badge b-green">✓ Replied</span>':e.reply==='NO'?'<span class="badge b-red">✗ No reply</span>':e.reply==='PENDING'?'<span class="badge b-orange">⏳ Pending</span>':'';
-    const db=isToday?'<span class="badge b-today">🔴 TODAY</span>':isTomorrow?'<span class="badge b-tomorrow">🟠 TOMORROW</span>':'';
+window.renderList = function() {
+  const fn = document.getElementById('fil-n').value;
+  const fr = document.getElementById('fil-r').value;
+  let f = entries.filter(e => (!fn||e.notice===fn) && (!fr||e.reply===fr));
+  const c = document.getElementById('list-con');
+  if(!f.length) { c.innerHTML='<div class="empty">No entries found</div>'; return; }
+  const today    = new Date().toISOString().split('T')[0];
+  const tomorrow = new Date(Date.now()+86400000).toISOString().split('T')[0];
+  c.innerHTML = f.map(e => {
+    const d = String(e.date);
+    const isToday=d===today, isTomorrow=d===tomorrow, isPast=d<today;
+    const cls = isToday?'today':isPast?'past':'';
+    const rb = e.reply==='YES'?'<span class="badge b-green">✓ Replied</span>'
+              :e.reply==='NO'?'<span class="badge b-red">✗ No reply</span>'
+              :e.reply==='PENDING'?'<span class="badge b-orange">⏳ Pending</span>':'';
+    const db2 = isToday?'<span class="badge b-today">🔴 TODAY</span>'
+               :isTomorrow?'<span class="badge b-tomorrow">🟠 TOMORROW</span>':'';
+    const [y,m,day] = d.split('-');
+    const fdate = day+' '+['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(m)-1]+' '+y;
     return `<div class="entry-card ${cls}">
-      <div class="ec-top"><div class="ec-name">${e.name}</div><span class="uid-badge">${e.id}</span></div>
-      <div class="ec-meta">${e.fy?e.fy+' | ':''}📅 ${formatDate(e.date)}</div>
-      <div><span class="badge b-blue">${e.notice}</span>${rb}${db}</div>
+      <div class="ec-top"><div class="ec-name">${e.name}</div><span class="uid-badge">${e.uid||'—'}</span></div>
+      <div class="ec-meta">${e.fy?e.fy+' | ':''}📅 ${fdate}</div>
+      <div><span class="badge b-blue">${e.notice}</span>${rb}${db2}</div>
       <div class="ec-gmail">📧 ${e.gmail1}${e.gmail2?' | '+e.gmail2:''}</div>
       ${e.remark?'<div style="font-size:11px;color:#777;margin-top:3px;">'+e.remark+'</div>':''}
       <div class="ec-actions">
@@ -274,7 +254,9 @@ function renderList(){
       </div>
     </div>`;
   }).join('');
-}
+};
+
+setStatus(false, 'Connecting...');
 </script>
 </body>
 </html>
